@@ -1,0 +1,65 @@
+version: '3'
+services:
+# database
+  backbone-dbmysql:
+    image: mysql:${MYSQL_TAG}
+    container_name: backbone-mysql
+    hostname: backbonedb
+    env_file:
+    - .env
+    environment:
+      MYSQL_ROOT_PASSWORD: backbone
+    volumes:
+    - ./backbone-dbmysql/data:/var/lib/mysql:cached
+    - ./backbone-dbmysql/config:/etc/mysql/conf.d
+    - ./backbone-dbmysql/log:/var/log/mysql:consistent
+    ports:
+    - 3306:3306
+
+  #PHPd
+  backbone-apache:
+    # entrypoint:  ['/bin/sh','-c', "while true; do sleep 1; done "]
+    build:
+      context: ./backbone-apache/build
+      args:
+        APACHE_TAG: ${APACHE_TAG}
+        HOST_SERVER_NAME: ${HOST_SERVER_NAME}
+        SITESPATH: ${SITESPATH}
+    env_file:
+    - .env
+    environment:
+      DB_HOST: backbone-dbmysql      
+      DB_DATABASE: ${MYSQL_DATABASE}
+      DB_USERNAME: ${MYSQL_USER}
+      DB_PASSWORD: ${MYSQL_PASSWORD}
+    container_name: backbone-apache
+    hostname: backboneapache
+    depends_on:
+      - backbone-dbmysql
+    volumes:
+      - ./app:/var/www/backbone:cached
+      - ./backbone-apache/config/httpd.conf:/usr/local/apache2/conf/httpd.conf
+      - ./backbone-apache/config/httpd-vhosts.conf:/usr/local/apache2/conf/extra/httpd-vhosts.conf
+      - ./backbone-apache/config/sites-available:/usr/local/apache2/sites-available
+      - ./backbone-apache/config/xdebug.ini:/etc/php/7.4/apache2/conf.d/20-xdebug.ini
+    ports:
+    # http port
+    - 8080:80
+    - 8443:443
+
+  backbone-php-cli:
+    entrypoint:  ['/bin/sh','-c', "while true; do sleep 3; done "]
+    build:
+      context: ./backbone-php-cli/build
+    env_file:
+    - .env
+    environment:
+      DB_HOST: backbone-dbmysql
+      DB_DATABASE: ${MYSQL_DATABASE}
+      DB_USERNAME: ${MYSQL_USER}
+      DB_PASSWORD: ${MYSQL_PASSWORD}
+    container_name: backbone-php-cli
+    depends_on:
+      - backbone-dbmysql
+    volumes:
+      - ./app:/app:cached
