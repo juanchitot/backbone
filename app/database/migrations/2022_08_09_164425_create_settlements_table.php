@@ -17,6 +17,9 @@ class CreateSettlementsTable extends Migration
             $table->id();
             $table->string('name');
             $table->bigInteger('zip_code')->nullable(false);
+            $table->bigInteger('settlement_uid');
+            $table->bigInteger('city_id')->unsigned()->nullable();
+            $table->foreign('city_id')->references('id')->on('cities');
             $table->bigInteger('municipality_id')->unsigned();
             $table->foreign('municipality_id')->references('id')->on('municipalities');
             $table->bigInteger('settlement_type_id')->unsigned();

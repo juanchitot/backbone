@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Dto\ZipCodeDto;
+use App\Models\City;
 use App\Models\Municipality;
 use App\Models\Settlement;
 use App\Models\SettlementType;
@@ -27,13 +28,13 @@ class ZipCodesController extends Controller
     public function index($code)
     {
         $result = [];
-        if (Cache::has($code)){
+        if (Cache::has($code)) {
             return Cache::get($code);
         }
         $municipality = $this->zipCodesRepository->municipalityByZipCode($code);
         if ($municipality) {
             $result = ZipCodeDto::createFromMunicipality($code, $municipality);
-            Cache::put($code,$result);
+            Cache::put($code, $result);
         } else {
             $result = ['error' => "Zip Code $code  Not Found"];
         }
@@ -51,12 +52,19 @@ class ZipCodesController extends Controller
                 continue;
             }
             $data = str_getcsv($line);
-            $settlementType = $this->insertSettlementType($data);
-            $zoneType = $this->inserZoneType($data);
-            $state = $this->insertState($data);
-            $municipality = $this->insertMunicipality($data, $state);
-            $settlement = $this->insertSettlement($data, $settlementType, $zoneType, $municipality);
-            echo "Settlement " . $settlement->name . " inserted \n";
+            try {
+                $settlementType = $this->insertSettlementType($data);
+                $zoneType = $this->inserZoneType($data);
+                $state = $this->insertState($data);
+                $city = $this->insertCity($data, $state);
+                $municipality = $this->insertMunicipality($data, $state);
+                $settlement = $this->insertSettlement($data, $settlementType, $zoneType, $municipality, $city);
+
+
+            } catch (\Throwable $e) {
+                echo "Fallo con la linea " . print_r($data, true);
+                echo $e;
+            }
         }
     }
 
@@ -75,18 +83,43 @@ class ZipCodesController extends Controller
     private function insertState(array $data)
     {
         $stateStr = $data[4];
-        return State::query()->firstOrCreate(['name' => $stateStr]);
+        $state = State::query()->where(['state_uid' => (int)$data[7]])->first();
+        if (!$state) {
+            $state = new State(['name' => $stateStr, 'state_uid' => (int)$data[7]]);
+            $state->saveOrFail();
+
+        }
+        return $state;
+    }
+
+    private function insertCity(array $data, State $state)
+    {
+        $cityName = $data[5];
+        $city_uid = (int )$data[14];
+        if (empty($city_uid))
+            return null;
+        $city = City::query()
+            ->where(['city_uid' => $city_uid,
+                'state_id' => $state->id
+            ])->first();
+        if (!$city) {
+            $city = new City(['name' => $cityName, 'city_uid' => $city_uid]);
+            $city->state()->associate($state);
+            $city->saveOrFail();
+        }
+        return $city;
     }
 
     private function insertMunicipality($data, State $state)
     {
         $municipalityName = $data[3];
         $municipality = Municipality::query()
-            ->where(['name' => $municipalityName,
+            ->where([
+                'municipality_uid' => (int)$data[11],
                 'state_id' => $state->id
             ])->first();
         if (!$municipality) {
-            $municipality = new Municipality(['name' => $municipalityName]);
+            $municipality = new Municipality(['name' => $municipalityName, 'municipality_uid' => (int)$data[11]]);
             $municipality->state()->associate($state);
             $municipality->saveOrFail();
         }
@@ -94,23 +127,32 @@ class ZipCodesController extends Controller
 
     }
 
-    private function insertSettlement(array $data, SettlementType $settlementType, ZoneType $zoneType, Municipality $municipality)
+    private function insertSettlement(array $data, SettlementType $settlementType, ZoneType $zoneType, Municipality $municipality, City $city = null)
     {
+        /* @var $settlement Settlement */
         $settlementName = $data[1];
         $zip_code = (int)$data[0];
         $settlement = Settlement::query()
-            ->where(['name' => $settlementName,
-                'zip_code' => $zip_code,
-                'municipality_id' => $municipality->id
+            ->where(['zip_code' => $zip_code,
+                'municipality_id' => $municipality->id,
+                'settlement_uid' => (int)$data[12]
             ])->first();
         if (!$settlement) {
-            $settlement = new Settlement(['name' => $settlementName, 'zip_code' => $zip_code]);
+
+            $settlement = new Settlement(['name' => $settlementName, 'zip_code' => $zip_code, 'settlement_uid' => (int)$data[12]]);
             $settlement->zoneType()->associate($zoneType);
             $settlement->municipality()->associate($municipality);
             $settlement->settlementType()->associate($settlementType);
+            if ($city)
+                $settlement->city()->associate($city);
+
             $settlement->saveOrFail();
+            echo $settlement->zip_code .'-'. $settlement->name . "\n";
+
         }
         return $settlement;
 
     }
+
+
 }
